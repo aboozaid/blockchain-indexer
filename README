@@ -1,0 +1,9 @@
+go build -o indexer.exe cmd/api/server.go && ./indexer.exe
+
+migrate -database sqlite3://chains_indexer_dev.db -path db/migrations up
+
+jet -source=sqlite -dsn="chains_indexer_dev.db" -schema=indexer -path=./jet -ignore-tables=schema_migrations -rel-model-path=models -rel-table-path=tables
+
+SQLITE_DSN="chains_indexer_dev.db" go run cmd/jet/generator.go
+
+ go run cmd/api/server.go
