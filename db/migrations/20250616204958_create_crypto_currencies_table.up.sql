@@ -14,5 +14,5 @@ CREATE TRIGGER update_crypto_currencies_modified_time
 BEGIN
     UPDATE crypto_currencies 
     SET updated_at = unixepoch()
-    WHERE id = NEW.id;
+    WHERE chain_id = NEW.chain_id;
 END;

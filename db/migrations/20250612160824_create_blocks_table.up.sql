@@ -3,7 +3,7 @@ CREATE TABLE blocks(
     block_number TEXT NOT NULL,
     block_hash TEXT NOT NULL,
     block_parent_hash TEXT NOT NULL,
-    block_confirmed INTEGER NOT NULL DEFAULT 0,
+    block_confirmed INTEGER DEFAULT 0,
 
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -16,5 +16,5 @@ CREATE TRIGGER update_blocks_modified_time
 BEGIN
     UPDATE blocks 
     SET updated_at = unixepoch()
-    WHERE id = NEW.id;
+    WHERE chain_id = NEW.chain_id;
 END;

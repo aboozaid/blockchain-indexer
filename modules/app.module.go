@@ -9,8 +9,7 @@ import (
 	"nodes-indexer/modules/config"
 	"nodes-indexer/modules/config/dto"
 	"nodes-indexer/modules/database"
-	"nodes-indexer/modules/evm"
-	"nodes-indexer/modules/tron"
+	"nodes-indexer/modules/polygon"
 	"os"
 	"os/signal"
 	"time"
@@ -51,13 +50,14 @@ func NewAppModule() AppModule {
 	cfgModule := config.NewConfigModule()
 	dbModule := database.NewDatabaseModule()
 
-	evmModule := evm.NewEvmModule()
-	tronModule := tron.NewTronModule()
-
+	// evmModule := evm.NewEvmModule()
+	// tronModule := tron.NewTronModule()
+	polygonModule := polygon.NewPolygonModule()
 
 	modulesLifecycle := []common.LifecycleModule{
-		evmModule,
-		tronModule,
+		// evmModule,
+		// tronModule,
+		polygonModule,
 		dbModule,
 	}
 	

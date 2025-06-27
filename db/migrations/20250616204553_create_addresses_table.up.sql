@@ -13,5 +13,5 @@ CREATE TRIGGER update_addresses_modified_time
 BEGIN
     UPDATE addresses 
     SET updated_at = unixepoch()
-    WHERE id = NEW.id;
+    WHERE chain_id = NEW.chain_id;
 END;

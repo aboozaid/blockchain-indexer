@@ -14,5 +14,5 @@ CREATE TRIGGER update_chains_states_modified_time
 BEGIN
     UPDATE chains_states 
     SET updated_at = unixepoch()
-    WHERE id = NEW.id;
+    WHERE chain_id = NEW.chain_id;
 END;

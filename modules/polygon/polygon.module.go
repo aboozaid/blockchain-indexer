@@ -3,13 +3,13 @@ package polygon
 import (
 	"nodes-indexer/modules/common"
 	"nodes-indexer/modules/config"
+	"nodes-indexer/modules/evm"
 
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog/log"
 )
 
-type EvmModule interface {
+type PolygonModule interface {
 	common.LifecycleModule
 	GetPolygonService() PolygonService
 }
@@ -18,7 +18,7 @@ type module struct{
 	service PolygonService
 }
 
-func NewPolygonModule() module {
+func NewPolygonModule() PolygonModule {
 	logger := log.Logger.With().Str("module", "PolygonModule").Logger()
 	cfg := config.NewConfigModule().GetConfigService()
 	// chainOptions := make([]ChainOption, 0, len(cfg.EvmChains))
@@ -39,12 +39,15 @@ func NewPolygonModule() module {
 	if err != nil {
 		panic(err.Error())
 	}
-	pool, err := ants.NewPool(3) // create 3 threads per blockchain
-	if err != nil {
-		panic(err.Error())
-	}
-	service := NewPolygonService(pool, client, &logger)
-	
+	// pool, err := ants.NewPool(3) // create 3 threads per blockchain
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+	evmModule := evm.NewEvmModule()
+	service := NewPolygonService(/*pool,*/ client, chain.ChainID, evmModule.GetEvmService(), &logger)
+
+	logger.Info().Str("Module", "PolygonModule").Msg("Polygon module initialized successfully")
+
 	return module{service}
 }
 

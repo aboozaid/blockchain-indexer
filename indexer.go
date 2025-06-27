@@ -1,14 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
+	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/panjf2000/ants/v2"
 )
 
 /*
@@ -116,122 +117,196 @@ type chain struct {
 
 
 func main() {
-	rpcClient, err := rpc.Dial("https://base-mainnet.g.alchemy.com/v2/1MTFMyOaGNUQQco1Urk9oWVHqPZ27ddw")
-	if err != nil {
-		panic(fmt.Errorf("failed to connect to RPC: %v", err))
-	}
-	defer rpcClient.Close()
+	// rpcClient, err := rpc.Dial("https://base-mainnet.g.alchemy.com/v2/1MTFMyOaGNUQQco1Urk9oWVHqPZ27ddw")
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to connect to RPC: %v", err))
+	// }
+	// defer rpcClient.Close()
 
-	client, err := ethclient.Dial("https://base-mainnet.g.alchemy.com/v2/1MTFMyOaGNUQQco1Urk9oWVHqPZ27ddw")
-	if err != nil {
-		panic(fmt.Errorf("failed to connect to Ethereum client: %v", err))
+	// client, err := ethclient.Dial("https://ethereum-rpc.publicnode.com")
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to connect to Ethereum client: %v", err))
+	// }
+	// defer client.Close()
+	// // b, err := client.BlockNumber(context.Background())
+	// // if err != nil {
+	// // 	panic(fmt.Errorf("failed to get block: %v", err))
+	// // }
+	// blockNumber := new(big.Int).SetUint64(22746691)
+	// logs, err := client.FilterLogs(context.Background(), ethereum.FilterQuery{
+	// 	FromBlock: blockNumber,
+	// 	ToBlock: blockNumber,
+	// 	Addresses: []common.Address{},
+	// 	Topics: [][]common.Hash{
+	// 		{
+	// 			common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"),
+	// 		},
+	// 	},
+	// })
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// writeLogsToFile(logs, blockNumber, "get_logs")
+	pool, _ := ants.NewPool(2)
+	resultCh := make(chan int, 5)
+	var wg sync.WaitGroup
+	for i:=0; i<5; i++ {
+		wg.Add(1)
+		_ = pool.Submit(func() {
+			defer wg.Done()
+			fmt.Println("Running goroutine number ", i+1)
+			time.Sleep(4*time.Second)
+			resultCh <- i+1
+		})
+		fmt.Println("Executing next goroutine")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// time.Sleep(1*time.Second)
 	}
-	defer client.Close()
-
+	wg.Wait()
+	close(resultCh)
+	for res := range resultCh {
+		fmt.Println(res)
+	}
+	// var blockTraces []dto.BlockTrace
+	// err = client.Client().CallContext(context.Background(), &blockTraces, "trace_block", blockNumber)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// fmt.Println(blockTraces[0].Action.To)
+	
+	// var result []polygon.BlockTrace
+	// if err := json.Unmarshal([]byte(raw), &result); err != nil {
+	// 	panic(err)
+	// }
+	// for _, tx := range result {
+	// 	if tx.Error != "" || tx.Type != "call" || tx.Action.Value == "" {
+	// 		continue
+	// 	}
+	// 	value := new(big.Int).SetUint64(00045577)
+	// 	if value.Sign() > 0 {
+	// 		fmt.Println(tx.Action.Value)
+	// 		break
+	// 	}
+	// }
 	// b, err := client.BlockNumber(context.Background())
-	blockNumber := new(big.Int).SetUint64(73059306)
-	if err != nil {
-		panic(fmt.Errorf("failed to get block: %v", err))
-	}
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to get block: %v", err))
+	// }
+	// blockNumber := new(big.Int).SetUint64(b)
 
-	var traces []interface{}
-	err = rpcClient.CallContext(context.Background(), &traces, "trace_block", blockNumber)
-	if err != nil {
-		panic(fmt.Errorf("failed to get traces: %v", err))
-	}
+	// var traces []interface{}
+	// err = rpcClient.CallContext(context.Background(), &traces, "trace_block", blockNumber)
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to get traces: %v", err))
+	// }
 
-	// 1. Write all traces to file
-	writeTracesToFile(traces, blockNumber, "all")
+	// // 1. Write all traces to file
+	// writeTracesToFile(traces, blockNumber, "all")
 
-	// 2. Filter traces with callType == "call"
-	callTraces := filterTracesBySpecificCallType(traces, "call")
-	writeTracesToFile(callTraces, blockNumber, "call_only")
+	// // 2. Filter traces with callType == "call"
+	// callTraces := filterTracesBySpecificCallType(traces, "call")
+	// writeTracesToFile(callTraces, blockNumber, "call_only")
 
-	// 3. Filter traces with callType == "call" AND value > 0
-	callWithValueTraces := filterCallTracesWithValue(callTraces)
-	writeTracesToFile(callWithValueTraces, blockNumber, "call_with_value")
+	// // 3. Filter traces with callType == "call" AND value > 0
+	// callWithValueTraces := filterCallTracesWithValue(callTraces)
+	// writeTracesToFile(callWithValueTraces, blockNumber, "call_with_value")
 
-	fmt.Printf("Block %d stats:\n", blockNumber)
-	// fmt.Printf("Block %d transactions:\n", len(b.Transactions()))
-	fmt.Printf("- Total traces: %d\n", len(traces))
-	fmt.Printf("- Call traces: %d\n", len(callTraces))
-	fmt.Printf("- Call traces with value > 0: %d\n", len(callWithValueTraces))
+	// fmt.Printf("Block %d stats:\n", blockNumber)
+	// // fmt.Printf("Block %d transactions:\n", len(b.Transactions()))
+	// fmt.Printf("- Total traces: %d\n", len(traces))
+	// fmt.Printf("- Call traces: %d\n", len(callTraces))
+	// fmt.Printf("- Call traces with value > 0: %d\n", len(callWithValueTraces))
 	
 }
 
-func writeTracesToFile(traces []interface{}, blockNumber *big.Int, suffix string) {
-	jsonData, err := json.MarshalIndent(traces, "", "  ")
+// func writeTracesToFile(traces []interface{}, blockNumber *big.Int, suffix string) {
+// 	jsonData, err := json.MarshalIndent(traces, "", "  ")
+// 	if err != nil {
+// 		panic(fmt.Errorf("failed to marshal JSON: %v", err))
+// 	}
+
+// 	filename := fmt.Sprintf("traces_block_%d_%s.json", blockNumber, suffix)
+// 	err = os.WriteFile(filename, jsonData, 0644)
+// 	if err != nil {
+// 		panic(fmt.Errorf("failed to write file: %v", err))
+// 	}
+// }
+
+func writeLogsToFile(logs []types.Log, blockNumber *big.Int, suffix string) {
+	jsonData, err := json.MarshalIndent(logs, "", "  ")
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal JSON: %v", err))
 	}
 
-	filename := fmt.Sprintf("traces_block_%d_%s.json", blockNumber, suffix)
+	filename := fmt.Sprintf("logs_block_%d_%s.json", blockNumber, suffix)
 	err = os.WriteFile(filename, jsonData, 0644)
 	if err != nil {
 		panic(fmt.Errorf("failed to write file: %v", err))
 	}
 }
 
-func filterTracesBySpecificCallType(traces []interface{}, callType string) []interface{} {
-	var filtered []interface{}
+// func filterTracesBySpecificCallType(traces []interface{}, callType string) []interface{} {
+// 	var filtered []interface{}
 
-	for _, trace := range traces {
-		traceMap, ok := trace.(map[string]interface{})
-		if !ok {
-			continue
-		}
+// 	for _, trace := range traces {
+// 		traceMap, ok := trace.(map[string]interface{})
+// 		if !ok {
+// 			continue
+// 		}
 
-		action, ok := traceMap["action"].(map[string]interface{})
-		if !ok {
-			continue
-		}
+// 		action, ok := traceMap["action"].(map[string]interface{})
+// 		if !ok {
+// 			continue
+// 		}
 
-		if ct, exists := action["callType"]; exists {
-			if ctStr, ok := ct.(string); ok && ctStr == callType {
-				filtered = append(filtered, trace)
-			}
-		}
-	}
+// 		if ct, exists := action["callType"]; exists {
+// 			if ctStr, ok := ct.(string); ok && ctStr == callType {
+// 				filtered = append(filtered, trace)
+// 			}
+// 		}
+// 	}
 
-	return filtered
-}
+// 	return filtered
+// }
 
-func filterCallTracesWithValue(traces []interface{}) []interface{} {
-	var filtered []interface{}
-	zero := big.NewInt(0)
+// func filterCallTracesWithValue(traces []interface{}) []interface{} {
+// 	var filtered []interface{}
+// 	zero := big.NewInt(0)
 
-	for _, trace := range traces {
-		traceMap, ok := trace.(map[string]interface{})
-		if !ok {
-			continue
-		}
+// 	for _, trace := range traces {
+// 		traceMap, ok := trace.(map[string]interface{})
+// 		if !ok {
+// 			continue
+// 		}
 
-		action, ok := traceMap["action"].(map[string]interface{})
-		if !ok {
-			continue
-		}
+// 		action, ok := traceMap["action"].(map[string]interface{})
+// 		if !ok {
+// 			continue
+// 		}
 
-		// Check if value exists and is > 0
-		if val, exists := action["value"]; exists {
-			valueStr, ok := val.(string)
-			if !ok {
-				continue
-			}
+// 		// Check if value exists and is > 0
+// 		if val, exists := action["value"]; exists {
+// 			valueStr, ok := val.(string)
+// 			if !ok {
+// 				continue
+// 			}
 
-			value := new(big.Int)
-			value, ok = value.SetString(valueStr[2:], 16) // Remove 0x prefix and parse as hex
-			if !ok {
-				continue
-			}
+// 			value := new(big.Int)
+// 			value, ok = value.SetString(valueStr[2:], 16) // Remove 0x prefix and parse as hex
+// 			if !ok {
+// 				continue
+// 			}
 
-			if value.Cmp(zero) > 0 {
-				filtered = append(filtered, trace)
-			}
-		}
-	}
+// 			if value.Cmp(zero) > 0 {
+// 				filtered = append(filtered, trace)
+// 			}
+// 		}
+// 	}
 
-	return filtered
-}
+// 	return filtered
+// }
 
 // func main() {
 // 	rpcClient, err := rpc.Dial("https://fullnode.avalanche.shkeeper.io:9960/ext/bc/C/rpc")

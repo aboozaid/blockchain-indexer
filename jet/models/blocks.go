@@ -12,7 +12,7 @@ type Block struct {
 	BlockNumber     string
 	BlockHash       string
 	BlockParentHash string
-	BlockConfirmed  int64
+	BlockConfirmed  *int64
 	CreatedAt       int64
 	UpdatedAt       int64
 }

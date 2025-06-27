@@ -40,8 +40,12 @@ func main() {
 								UseField(func(columnMetaData metadata.Column) template.TableModelField {
 										defaultTableModelField := template.DefaultTableModelField(columnMetaData)
 										if columnMetaData.DataType.Name == "INTEGER" {
+											type_name := "int64"
+											if columnMetaData.IsNullable {
+												type_name = "*int64"
+											}
 											defaultTableModelField.Type = template.Type{
-												Name: "int64",
+												Name: type_name,
 											}
 										}
 										// if strings.Contains(defaultTableModelField.Type.Name, "*") {
