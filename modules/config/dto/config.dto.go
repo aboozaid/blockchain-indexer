@@ -30,14 +30,15 @@ func (c DBConfig) Validate() error {
 type ChainConfig struct {
 	RPCUrl     string	`env:"RPC_URL"`
 	ChainID     string	`env:"CHAIN_ID"`
-	Chain     string	`env:"CHAIN"`
+	Name     string	`env:"NAME"`
 	Confirmations int8	`env:"CONFIRMATIONS" envDefault:"12"`
+	BatchBlocksRange int8	`env:"BATCH_BLOCKS_RANGE" envDefault:"6"`
 }
 
 func (c ChainConfig) Validate() error {
 	return validation.ValidateStruct(&c, 
 		validation.Field(&c.RPCUrl, validation.Required, is.URL), 
-		validation.Field(&c.Chain, validation.Required, validation.In(
+		validation.Field(&c.Name, validation.Required, validation.In(
 			"eth",
 			"bsc",
 			"btc",
@@ -69,6 +70,7 @@ func (c ChainConfig) Validate() error {
 			"12345",  // Tron Testnet (placeholder)
 		)),
 		validation.Field(&c.Confirmations, validation.Min(3), validation.Max(50)),
+		validation.Field(&c.BatchBlocksRange, validation.Min(3), validation.Max(14)),
 	)
 }
 

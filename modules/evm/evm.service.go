@@ -3,16 +3,23 @@ package evm
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"nodes-indexer/modules/common"
 	"nodes-indexer/modules/evm/dto"
 	"nodes-indexer/modules/evm/models"
+	"strconv"
+	"sync"
+	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog"
 )
 
 type EvmService interface {
-	// common.LifecycleService
+	common.LifecycleService
 	GetChainState(ctx context.Context, chainID int64) (*models.ChainState, error)
 	GetSupportedContracts(ctx context.Context, chainID int64, contracts []string) ([]*models.CryptoCurrency, error)
 	CreateBlocks(ctx context.Context, chainID int64, headers []*types.Header) error
@@ -21,20 +28,22 @@ type EvmService interface {
 	SearchByAddresses(ctx context.Context, chainID int64, addresses []string) ([]*models.Address, error)
 }
 
-// type ChainOption struct {
-// 	ID      int64
-// 	Client  *ethclient.Client
-// 	BlocksConfirmations int8
-// }
+type ChainOption struct {
+	ID      int64
+	Client  *ethclient.Client
+	Pool	*ants.Pool
+	BlockConfirmations int8
+	Logger *zerolog.Logger
+}
 
-// type chain struct {
-// 	ChainOption
+type chain struct {
+	ChainOption
 
-// 	stopIndexing context.CancelFunc
+	stopIndexing context.CancelFunc
 
-// 	next_block_number uint64
-// 	latest_checked_block_hash ethcommon.Hash
-// }
+	// next_block_number uint64
+	latest_checked_block_hash string
+}
 
 // type transaction struct {
 // 	hash string
@@ -43,11 +52,11 @@ type EvmService interface {
 
 type service struct {
 	// pool *ants.Pool
-	// chains map[int64]*chain
-	// wg sync.WaitGroup
+	chains map[int64]*chain
+	wg sync.WaitGroup
 
 	repository EvmRepository
-	logger *zerolog.Logger
+	// logger *zerolog.Logger
 }
 
 
@@ -63,20 +72,20 @@ type service struct {
 // 	REORG_TRAVERSE_NODE_TIMEOUT = 16 * time.Minute // 16 minute including BLOCK_BY_BLOCK_SLEEP_INTERVAL so it actually 8 min without sleeping
 // )
 
-func NewEvmService(/*pool *ants.Pool, chainOptions []ChainOption,*/ repository EvmRepository, logger *zerolog.Logger) EvmService {
-	// chains := map[int64]*chain{}
-	// for _, chainOption := range chainOptions {
-	// 	chains[chainOption.ID] = &chain{
-	// 		ChainOption:         chainOption,
-	// 		next_block_number:  0,
-	// 		latest_checked_block_hash: ethcommon.Hash{},
-	// 	}
-	// }
+func NewEvmService(/*pool *ants.Pool,*/ chainOptions []ChainOption, repository EvmRepository) EvmService {
+	chains := map[int64]*chain{}
+	for _, chainOption := range chainOptions {
+		chains[chainOption.ID] = &chain{
+			ChainOption:         chainOption,
+			// next_block_number:  0,
+			// latest_checked_block_hash: ethcommon.Hash{},
+		}
+	}
 	return &service{
 		// pool: pool, 
-		// chains: chains,
+		chains: chains,
 		repository: repository,
-		logger: logger,
+		// logger: logger,
 	}
 		
 }
@@ -116,134 +125,151 @@ func (s *service) UpdateChainState(ctx context.Context, chainID int64, chainStat
 		return nil
 	})
 }
-// func (s *service) OnModuleStart() error {
-// 	for chainID, chain := range s.chains {
-// 		// NOTE: Needs to be updated according to how many goroutines running below
-// 		s.wg.Add(2)
+func (s *service) OnModuleStart() error {
+	for chainID, chain := range s.chains {
+		// NOTE: Needs to be updated according to how many goroutines running below
+		s.wg.Add(1)
 
-// 		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
 		
-// 		submitTask := func(task func()) error {
-// 			err := s.pool.Submit(func() {
-// 				defer s.wg.Done()
-// 				task()
-// 			})
-// 			if err != nil {
-// 				cancel()
-// 				return err
-// 			}
-// 			return nil
-// 		}
-// 		receiveBlocks := make(chan []*types.Block, 3) // Buffered channel to receive blocks, 3 because we batch 3 times per minute
-// 		processBlocks := make(chan []*types.Block, 1) // Buffered channel to process blocks
-// 		// TODO: Handle errors if returned
-// 		if err := submitTask(func() { s.trackAndCollectBlocks(ctx, chainID, receiveBlocks) }); err != nil {
-// 			return err
-// 		}
-// 		if err := submitTask(func() { s.handleReOrg(ctx, chainID, receiveBlocks, processBlocks) }); err != nil {
-// 			return err
-// 		}
-// 		// if err := submitTask(func() { s.handleBlocks(ctx, chainID) }); err != nil {
-// 		// 	return err
-// 		// }
+		// submitTask := func(task func()) error {
+		// 	err := s.pool.Submit(func() {
+		// 		defer s.wg.Done()
+		// 		task()
+		// 	})
+		// 	if err != nil {
+		// 		cancel()
+		// 		return err
+		// 	}
+		// 	return nil
+		// }
+		reorge_channel := make(chan []*types.Header, 3) // Buffered channel to receive blocks, 3 because we batch 3 times per minute
+		// processBlocks := make(chan []*types.Block, 1) // Buffered channel to process blocks
+		// TODO: Handle errors if returned
+		if err := s.runTaskOnChainPool(chainID, func() { s.trackAndCollectBlocks(ctx, chainID, reorge_channel) }); err != nil {
+			return err
+		}
+		// if err := submitTask(func() { s.handleReOrg(ctx, chainID, receiveBlocks, processBlocks) }); err != nil {
+		// 	return err
+		// }
+		// if err := submitTask(func() { s.handleBlocks(ctx, chainID) }); err != nil {
+		// 	return err
+		// }
 
-// 		chain.stopIndexing = cancel
-// 	}
-// 	return nil
-// }
+		chain.stopIndexing = cancel
+	}
+	return nil
+}
 
-// func (s *service) OnModuleStop() error {
-// 	defer s.pool.Release()
+func (s *service) OnModuleStop() error {
+	// defer s.pool.Release()
 
-// 	for _, chain := range s.chains {
-// 		chain.stopIndexing()
-// 	}
-// 	s.wg.Wait()
+	for _, chain := range s.chains {
+		chain.stopIndexing()
+		chain.Pool.Release()
+	}
+	s.wg.Wait()
 	
-// 	fmt.Println("EVM service stopped")
-// 	return nil
-// }
+	fmt.Println("EVM service stopped")
+	return nil
+}
 // called by multiple chain goroutine
 // each chain have one trackAndCollectBlocks single goroutine
 // trackAndCollectBlocks called by multiple goroutines on different chains
-// func (s *service) trackAndCollectBlocks(ctx context.Context, chainID int64, receiveBlocks chan []*types.Block) error {
-// 	chain_state, err := s.repository.GetLatestChainState(ctx, chainID) // -> called by multiple goroutine at the same time
-// 	if err != nil {
-// 		return err
-// 	}
+func (s *service) trackAndCollectBlocks(ctx context.Context, chainID int64, reorge_channel chan []*types.Header) error {
+	chain_state, err := s.repository.GetLatestChainState(ctx, chainID) // -> called by multiple goroutine at the same time
+	if err != nil {
+		return err
+	}
 	
-// 	chain := s.chains[chainID] //NOTE: -> read from map
+	chain := s.chains[chainID] //NOTE: -> read from map
+
+	var next_block_number uint64
+	if chain_state.LastBlockNumber != nil && chain_state.LastBlockHash != nil {
+		last_checked_block_number, _ := strconv.ParseUint(*chain_state.LastBlockNumber, 10, 64)
+		// NOTE: At this moment only one goroutine per chain will access this variable so mutex not needed here
+		// chain.next_block_number = last_checked_block_number+1	//NOTE: -> write to chain ptr
+		next_block_number = last_checked_block_number+1
+		chain.latest_checked_block_hash = *chain_state.LastBlockHash //NOTE: -> write to chain ptr
+	}
+
+	for {
+		select {
+			case <- ctx.Done():
+				defer close(reorge_channel)
+				// chain := s.chains[chainID]
+				/*err := s.repository.UpdateChainState(context.Background(), chainID, func(chain_state *models.ChainState) error {
+					last_block_number := strconv.FormatUint(chain.next_block_number, 10)
+					last_block_hash := chain.latest_checked_block_hash.String()
+					chain_state.ChainID = chainID
+					chain_state.LastBlockNumber = &last_block_number
+					chain_state.LastBlockHash = &last_block_hash
+
+					return nil
+				})*/
 				
-// 	if chain_state.LastBlockNumber != nil && chain_state.LastBlockHash != nil {
-// 		last_checked_block_number, _ := strconv.ParseUint(*chain_state.LastBlockNumber, 10, 64)
-// 		// NOTE: At this moment only one goroutine per chain will access this variable so mutex not needed here
-// 		chain.next_block_number = last_checked_block_number+1	//NOTE: -> write to chain ptr
-// 		chain.latest_checked_block_hash = ethcommon.HexToHash(*chain_state.LastBlockHash) //NOTE: -> write to chain ptr
-// 	}
+				if err := s.saveStateBeforeCancel(chainID, next_block_number-1); err != nil {
+					return err
+				}
+				return nil
+			default:
+				latest_chain_block_number, err := chain.Client.BlockNumber(ctx)
+				if err != nil {
+					return err
+				}
+				if next_block_number == 0 /* NOTE: read from chain ptr */ {
+					next_block_number = latest_chain_block_number	/* NOTE: write to chain ptr */
+					// time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL)
+					// continue
+				} else {
+					blocks_range := latest_chain_block_number - next_block_number
+					if blocks_range >= COLLECT_BLOCKS_RANGE {
+						chain.Logger.Debug().Msgf("Start indexing %d blocks", COLLECT_BLOCKS_RANGE)
+						headers := make([]*types.Header, COLLECT_BLOCKS_RANGE)
+						from_block := new(big.Int).SetUint64(next_block_number)
+						for i := range COLLECT_BLOCKS_RANGE {
+							header, err := chain.Client.HeaderByNumber(ctx, from_block) /* NOTE: read from chain ptr */
+							if err != nil {
+								return err
+							}
+							headers[i] = header
+							from_block.Add(from_block, INC_BY_ONE)
+							// We need to sleep to not exceed Node rate limit per seconds
+							time.Sleep(COLLECT_BLOCK_BY_BLOCK_INTERVAL)
+						}
+						//TODO:  latest_checked_block_hash should be updated after checking re-org not here
+						// chain.latest_checked_block_hash = headers[BlocksThreshold-1].Hash()
+						next_block_number = headers[COLLECT_BLOCKS_RANGE-1].Number.Uint64()+1
+	
+						// select {
+						// 	case receiveBlocks <- blocks:
+						// 		fmt.Println("Sent blocks for re-org handling on", chainID, ":", len(blocks))
+						// 	default:
+						// 		fmt.Println("Receive channel is full, skipping sending blocks for chain", chainID)
+						// }
+						// if cap is full it will be queued until it gets free
+						reorge_channel <- headers
 
-// 	for {
-// 		select {
-// 			case <- ctx.Done():
-// 				defer close(receiveBlocks)
-// 				fmt.Println("Terminating TrackAndCollectBlocks for chain", chainID)
-// 				chain := s.chains[chainID]
-// 				err := s.repository.UpdateChainState(context.Background(), chainID, func(chain_state *models.ChainState) error {
-// 					last_block_number := strconv.FormatUint(chain.next_block_number, 10)
-// 					last_block_hash := chain.latest_checked_block_hash.String()
-// 					chain_state.ChainID = chainID
-// 					chain_state.LastBlockNumber = &last_block_number
-// 					chain_state.LastBlockHash = &last_block_hash
+						// time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL_PER_THRESHOLD)
+						// continue
+					}
+				}
+				time.Sleep(TRACK_AND_COLLECT_BLOCKS_INTERVAL)
+		}
+	}
+}
 
-// 					return nil
-// 				})
-// 				if err != nil {
-// 					return err
-// 				}
-// 				return nil
-// 			default:
-// 				last_block_number, err := chain.Client.BlockNumber(ctx)
-// 				if err != nil {
-// 					return err
-// 				}
-// 				if chain.next_block_number == 0 /* NOTE: read from chain ptr */ {
-// 					chain.next_block_number = last_block_number	/* NOTE: write to chain ptr */
-// 					time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL)
-// 					continue
-// 				}
-// 				threshold := last_block_number - chain.next_block_number	/* NOTE: read from chain ptr */
-// 				fmt.Println("threshold: ", threshold)
-// 				if int(threshold) >= BlocksThreshold {
-// 					from_block := new(big.Int).SetUint64(chain.next_block_number /* NOTE: read from chain ptr */)
-// 					blocks := make([]*types.Block, BlocksThreshold)
-// 					for i := range BlocksThreshold {
-// 						block, err := chain.Client.BlockByNumber(ctx, from_block) /* NOTE: read from chain ptr */
-// 						if err != nil {
-// 							return err
-// 						}
-// 						blocks[i] = block
-// 						from_block.Add(from_block, next_block)
-
-// 						// We need to sleep to not exceed Node rate limit per seconds
-// 						time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL_PER_THRESHOLD)
-// 					}
-// 					//TODO:  latest_checked_block_hash should be updated after checking re-org not here
-// 					// chain.latest_checked_block_hash = headers[BlocksThreshold-1].Hash()
-// 					chain.next_block_number = blocks[BlocksThreshold-1].NumberU64()+1	/* NOTE: write to chain ptr */
-
-// 					select {
-// 						case receiveBlocks <- blocks:
-// 							fmt.Println("Sent blocks for re-org handling on", chainID, ":", len(blocks))
-// 						default:
-// 							fmt.Println("Receive channel is full, skipping sending blocks for chain", chainID)
-// 					}
-					
-// 					time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL_PER_THRESHOLD)
-// 					continue
-// 				}
-// 				time.Sleep(BLOCKS_BATCH_SLEEP_INTERVAL)
-// 		}
-// 	}
-// }
+func (s *service) saveStateBeforeCancel(chainID int64, last_checked_block_number uint64) error {
+	chain := s.chains[chainID]
+	chain.Logger.Info().Msg("saving latest chain data on database before closing...")
+	return s.repository.UpdateChainState(context.Background(), chainID, func(chain_state *models.ChainState) error {
+		last_block_number := strconv.FormatUint(last_checked_block_number, 10)
+		chain_state.ChainID = chainID
+		chain_state.LastBlockNumber = &last_block_number
+		chain_state.LastBlockHash = &chain.latest_checked_block_hash
+		return nil
+	})
+}
 
 // func (s *service) handleReOrg(ctx context.Context, chainID int64, receiveBlocks chan []*types.Block, processBlocks chan []*types.Block) error {
 // 	chain := s.chains[chainID]
@@ -587,4 +613,11 @@ func (s *service) IsReorgDetected(headers []*types.Header, latest_checked_block_
 
 func (s *service) getTxSender(tx *types.Transaction) (ethcommon.Address, error) {
 	return types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
+}
+
+func (s *service) runTaskOnChainPool(chainID int64, task func()) error {
+	if err := s.chains[chainID].Pool.Submit(task); err != nil {
+		return err
+	}
+	return nil
 }
